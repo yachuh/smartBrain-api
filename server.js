@@ -1,151 +1,121 @@
 const express = require('express')
 const app = express()
 const bcrypt = require('bcrypt-nodejs')
-const { v4: uuidv4 } = require('uuid')
 const cors = require('cors')
+const knex = require('knex')
+const db = knex({
+  client: 'pg',
+  connection: {
+    host: '127.0.0.1',
+    port: 5432,
+    user: 'yachu',
+    password: '',
+    database: 'smart-brain'
+  }
+})
 
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use(cors())
 
-const database = {
-  users: [
-    {
-      id: '123',
-      name: 'John',
-      email: 'john@gmail.com',
-      password: 'cookies',
-      entries: 0,
-      joinedAt: new Date()
-    },
-    {
-      id: '456',
-      name: 'Sally',
-      email: 'sally@gmail.com',
-      // password: 'bananas',
-      entries: 0,
-      joinedAt: new Date()
-    }
-  ],
-  logins: [
-    {
-      id: '123',
-      hash: '',
-      email: 'john@gmail.com'
-    },
-    {
-      id: '456',
-      hash: '',
-      email: 'sally@gmail.com'
-    }
-  ]
-}
-
 app.get('/', (req, res) => {
-  res.send(database.users)
+  db.select('*').from('users')
+    .then(users => {
+      res.send(users)
+    })
 })
 
-app.post('/login', (req, res) => {
-  // const found = false
-  // database.logins.forEach(user => {
-  //   const { email, hash } = user
-  //   bcrypt.compare(req.body.password, hash, () => {
-
-  //   })
-  //   if (req.body.email === email &&
-  //     req.body.password === hash) {
-  //     found = true
-  //     console.log('req:::', req.body)
-  //     console.log('database:::', email, password)
-  //     return res.json('success')
-  //   }
-  // })
-  // if (!found) {
-  //   res.status(400).json('wrong username or password')
-  // }
-  if (req.body.email === database.users[0].email &&
-     req.body.password === database.users[0].password) {
-    res.json({
-      isSuccess: true,
-      user: database.users[0]
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body
+  try {
+    // Get the hash from login
+    const login = await db.select('email', 'hash').from('login').where('email', '=', email)
+    const hash = login[0].hash
+    // Compare hash with user-entered password
+    bcrypt.compare(password, hash, async function (err, isValid) {
+      if (isValid) {
+        try {
+          const user = await db.select('*').from('users').where('email', '=', email)
+          return res.json({ isSuccess: true, user: user[0] })
+        } catch (error) {
+          res.status(400).json({ isSuccess: false, message: 'Unable to get user' })
+        }
+      } else {
+        res.status(400).json({ isSuccess: false, message: err || 'Invalid password' })
+      }
     })
-  } else {
-    res.status(200).json({
-      isSuccess: false,
-      message: 'Login falied!'
-    })
+  } catch (error) {
+    console.log(error)
+    res.status(400).json({ isSuccess: false, message: 'Unable to get login' })
   }
 })
 
-app.post('/signup', (req, res) => {
+app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body
-
-  // 檢查 email 是否已經註冊
-  database.users.forEach(user => {
-    if (user.email === email) {
-      return res.status(400).json({
-        isSuccess: false,
-        message: '此 email 已經註冊'
+  // Get the hashed password
+  const hash = await bcrypt.hashSync(password)
+  // Start Transaction
+  db.transaction(trx => {
+    // Insert into login table
+    trx.insert({
+      hash,
+      email
+    })
+      .into('login')
+      .returning('email')
+      // Insert into users table
+      .then(loginEmail => {
+        return db('users')
+          .returning('*')
+          .insert({
+            email: loginEmail[0].email,
+            name,
+            joined: new Date()
+          })
+          // Sending Response
+          .then(user => {
+            res.status(200).json({
+              isSuccess: true,
+              data: user[0]
+            })
+          })
       })
-    }
+      .then(trx.commit)
+      .catch(trx.rollback)
   })
-
-  let hashedPassword = ''
-  bcrypt.hash(password, null, null, function (err, hash) {
-    hashedPassword = hash
-  })
-
-  const id = uuidv4()
-
-  const user = {
-    id,
-    name,
-    email,
-    entries: 0,
-    joinedAt: new Date()
-  }
-  database.users.push(user)
-
-  const login = {
-    id,
-    email,
-    hash: hashedPassword
-  }
-  database.logins.push(login)
-
-  res.status(200).json({
-    isSuccess: true,
-    data: database.users[database.users.length - 1]
-  })
+    .catch(err => {
+      console.log(err)
+      res.status(400).json({ isSuccess: false, message: 'Unable to register' })
+    })
 })
 
 app.get('/user/:id', (req, res) => {
   const { id } = req.params
-  let found = false
-  database.users.forEach(user => {
-    if (user.id === id) {
-      found = true
-      return res.json(user)
-    }
-  })
-  if (!found) {
-    res.status(404).json('no such user')
-  }
+  db.select('*').from('users').where({ id })
+    .then(user => {
+      user.length // check if user exists
+        ? res.json({ isSuccess: true, data: user[0] })
+        : res.status(400).json({ isSuccess: false, message: 'User not found' })
+    })
+    .catch(err => {
+      console.log(err)
+      res.status(400).json({ isSuccess: false, message: 'Error getting user' })
+    })
 })
 
 app.put('/image', (req, res) => {
   const { id } = req.body
-  let found = false
-  database.users.forEach(user => {
-    if (user.id === id) {
-      found = true
-      user.entries++
-      return res.json(user.entries)
-    }
-  })
-  if (!found) {
-    res.status(404).json('no such user')
-  }
+  db('users')
+    .where('id', '=', id)
+    .increment('entries', 1)
+    .returning('entries')
+    .then(entries => {
+      res.json(entries[0].entries)
+    })
+    .catch(err => {
+      console.log(err)
+      res.status(400).json({ isSuccess: false, message: 'unable to get entries' })
+    })
 })
 
 const port = process.env.PORT || 3000
