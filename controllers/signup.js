@@ -1,5 +1,8 @@
 const handleSignup = async (req, res, db, bcrypt) => {
   const { name, email, password } = req.body
+  if (!name || !email || !password) {
+    return res.status(400).json({ isSuccess: false, message: 'Incorrect form submissions' })
+  }
   // Get the hashed password
   const hash = await bcrypt.hashSync(password)
   // Start Transaction
