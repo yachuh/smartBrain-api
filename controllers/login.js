@@ -1,5 +1,8 @@
 const handleLogin = async (req, res, db, bcrypt) => {
   const { email, password } = req.body
+  if (!email || !password) {
+    return res.status(400).json({ isSuccess: false, message: 'Incorrect form submissions' })
+  }
   try {
     // Get the hash from login
     const login = await db.select('email', 'hash').from('login').where('email', '=', email)
