@@ -1,8 +1,15 @@
 const handleSignup = async (req, res, db, bcrypt) => {
   const { name, email, password } = req.body
+
+  // Check if data is empty
   if (!name || !email || !password) {
-    return res.status(400).json({ isSuccess: false, message: 'Incorrect form submissions' })
+    return res.status(200).json({ isSuccess: false, message: 'Incorrect form submissions' })
   }
+  // Check if email is registered
+  if (db.select('*').from('users').where('email', '=', email)) {
+    return res.status(200).json({ isSuccess: false, message: 'Email is already registered.' })
+  }
+
   // Get the hashed password
   const hash = await bcrypt.hashSync(password)
   // Start Transaction
