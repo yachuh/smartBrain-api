@@ -9,6 +9,9 @@ const handleLogin = require('./controllers/login')
 const handleProfileGet = require('./controllers/profile')
 const { handleImage, handleImageApiCall } = require('./controllers/image')
 
+const dotenv = require('dotenv')
+dotenv.config()
+
 const db = knex({
   client: 'pg',
   connection: {
